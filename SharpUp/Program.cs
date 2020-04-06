@@ -328,7 +328,7 @@ namespace SharpUp
 
                 foreach (FileSystemAccessRule rule in rules)
                 {
-                    if (identity.Groups.Contains(rule.IdentityReference))
+                    if (identity.Groups.Contains(rule.IdentityReference) || rule.IdentityReference == identity.User)
                     {
                         if ((AccessRight & rule.FileSystemRights) == AccessRight)
                         {
@@ -511,7 +511,73 @@ namespace SharpUp
                 }
             }
         }
+        public static void GetModifiableRegistryAccess()
+        {
+            // checks if the current user has rights to modify the given registry
 
+            ServiceController[] scServices;
+            scServices = ServiceController.GetServices();
+
+            // rights that signify modifiable access
+            // https://docs.microsoft.com/fr-fr/dotnet/api/system.security.accesscontrol.registryrights?view=netframework-4.8
+            RegistryRights[] ModifyRights =
+            {
+                RegistryRights.ChangePermissions,
+                RegistryRights.FullControl,
+                RegistryRights.TakeOwnership,
+                RegistryRights.SetValue,
+                RegistryRights.WriteKey
+            };
+
+            Console.WriteLine("\r\n\r\n=== Modifiable Registry Services  ===\r\n");
+
+            WindowsIdentity identity = WindowsIdentity.GetCurrent();
+
+            foreach (ServiceController sc in scServices)
+            {
+                try
+                {
+                    RegistryKey key = Registry.LocalMachine.OpenSubKey("SYSTEM\\CurrentControlSet\\Services\\" + sc.ServiceName);
+                    AuthorizationRuleCollection rules = key.GetAccessControl().GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier));
+
+                    foreach (RegistryAccessRule rule in rules)
+                    {
+                        if (identity.Groups.Contains(rule.IdentityReference) || rule.IdentityReference == identity.User)
+                        {
+                            foreach (RegistryRights AccessRight in ModifyRights)
+                            {
+                                if ((AccessRight & rule.RegistryRights) == AccessRight)
+                                {
+                                    if (rule.AccessControlType == AccessControlType.Allow)
+                                    {
+                                        ManagementObjectSearcher wmiData = new ManagementObjectSearcher(@"root\cimv2", String.Format("SELECT * FROM win32_service WHERE Name LIKE '{0}'", sc.ServiceName));
+                                        ManagementObjectCollection data = wmiData.Get();
+
+                                        foreach (ManagementObject result in data)
+                                        {
+                                            Console.WriteLine("  Name             : {0}", result["Name"]);
+                                            Console.WriteLine("  DisplayName      : {0}", result["DisplayName"]);
+                                            Console.WriteLine("  Description      : {0}", result["Description"]);
+                                            Console.WriteLine("  RegistryKey      : {0}", "SYSTEM\\CurrentControlSet\\Services\\" + sc.ServiceName);
+                                            Console.WriteLine("  State            : {0}", result["State"]);
+                                            Console.WriteLine("  StartMode        : {0}", result["StartMode"]);
+                                            Console.WriteLine("  PathName         : {0}", result["PathName"]);
+                                        }
+                                        break;
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(String.Format("  [X] Exception: {0}", ex.Message));
+                }
+            }
+
+        }
         public static void GetModifiableRegistryAutoRuns()
         {
             Console.WriteLine("\r\n\r\n=== Modifiable Registry Autoruns ===\r\n");
@@ -656,7 +722,7 @@ namespace SharpUp
 
                     foreach (System.Security.AccessControl.CommonAce ace in dacl)
                     {
-                        if (identity.Groups.Contains(ace.SecurityIdentifier))
+                        if (identity.Groups.Contains(ace.SecurityIdentifier) || ace.SecurityIdentifier == identity.User)
                         {
                             ServiceAccessRights serviceRights = (ServiceAccessRights)ace.AccessMask;
                             foreach (ServiceAccessRights ModifyRight in ModifyRights)
@@ -1347,6 +1413,7 @@ namespace SharpUp
             GetCachedGPPPassword();
             GetRegAutoLogon();
             GetGPPPassword();
+            GetModifiableRegistryAccess();
             
         }
 
